@@ -116,4 +116,11 @@ async def latency(query: Query):
             ),
         }
 
-    return {"regions": results}
+    return JSONResponse(
+    content={"regions": results},
+    headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+    },
+)
