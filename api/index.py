@@ -2,21 +2,33 @@
 import json
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 
 app = FastAPI()
 
-# Allow POST requests from any origin.
+# Add CORS middleware.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["POST", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# The JSON file is in the repository root.
+# Ensure CORS headers are present on all responses.
+class EnsureCORSHeaders(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        return response
+
+app.add_middleware(EnsureCORSHeaders)
+
 DATA_FILE = (
     Path(__file__).resolve().parent.parent
     / "q-vercel-latency.json"
@@ -32,7 +44,6 @@ class Query(BaseModel):
 
 
 def percentile(values, q):
-    """Calculate a percentile using linear interpolation."""
     values = sorted(values)
     if not values:
         return None
@@ -48,8 +59,24 @@ def percentile(values, q):
     )
 
 
+@app.options("/")
+@app.options("/api")
+@app.options("/api/latency")
+def cors_preflight():
+    return JSONResponse(
+        content={"ok": True},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
+
 @app.post("/")
-def latency(query: Query):
+@app.post("/api")
+@app.post("/api/latency")
+async def latency(query: Query):
     results = {}
 
     for region in query.regions:
@@ -85,8 +112,7 @@ def latency(query: Query):
                 sum(uptimes) / len(uptimes), 3
             ),
             "breaches": sum(
-                latency > query.threshold_ms
-                for latency in latencies
+                x > query.threshold_ms for x in latencies
             ),
         }
 
